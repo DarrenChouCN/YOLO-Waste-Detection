@@ -36,10 +36,13 @@ ls -l ~/.ssh/id_rsa ~/.ssh/id_rsa.pub
 chmod 600 ~/.ssh/id_rsa
 chmod 644 ~/.ssh/id_rsa.pub
 
+
+# get VM's public IP
+az vm show -d -g rg-wastedetection-dev-aue-01 -n vm-wastedetection-master-aue-01 --query publicIps -o tsv
 # login VM
+# azureuser@20.212.8.183 -i ~/.ssh/id_rsa
 ssh azureuser@<public-ip> -i ~/.ssh/id_rsa
 ```
-
 
 ```bash
 source ~/venvs/ansible-azure/bin/activate
@@ -48,4 +51,7 @@ cd /mnt/g/YOLO-Waste-Detection/ansible
 ansible-playbook playbooks/azure_infra.yml
 ```
 
-
+```bash
+cd ansible
+ANSIBLE_ROLES_PATH=./roles ansible-playbook -i inventory/localhost.yml playbooks/k8s_cluster.yml
+```
