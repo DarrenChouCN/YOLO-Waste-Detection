@@ -1,0 +1,127 @@
+- name: Provision Azure infrastructure for waste detection Kubernetes cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - ../group_vars/all.yml
+
+  tasks:
+    - name: Ensure resource group exists
+      azure.azcollection.azure_rm_resourcegroup:
+        auth_source: cli
+        subscription_id: "{{ lookup('env', 'AZURE_SUBSCRIPTION_ID') }}"
+        name: "{{ azure_rg }}"
+        location: "{{ azure_location }}"
+        tags: "{{ common_tags }}"
+
+    - name: Ensure virtual network exists
+      azure.azcollection.azure_rm_virtualnetwork:
+        auth_source: cli
+        subscription_id: "{{ lookup('env', 'AZURE_SUBSCRIPTION_ID') }}"
+        resource_group: "{{ azure_rg }}"
+        name: "{{ azure_vnet }}"
+        location: "{{ azure_location }}"
+        address_prefixes_cidr: "{{ vnet_address_space }}"
+        tags: "{{ common_tags }}"
+
+    - name: Ensure subnet exists
+      azure.azcollection.azure_rm_subnet:
+        auth_source: cli
+        subscription_id: "{{ lookup('env', 'AZURE_SUBSCRIPTION_ID') }}"
+        resource_group: "{{ azure_rg }}"
+        virtual_network_name: "{{ azure_vnet }}"
+        name: "{{ azure_subnet }}"
+        address_prefix_cidr: "{{ subnet_prefix }}"
+
+    - name: Ensure network security group exists
+      azure.azcollection.azure_rm_securitygroup:
+        auth_source: cli
+        subscription_id: "{{ lookup('env', 'AZURE_SUBSCRIPTION_ID') }}"
+        resource_group: "{{ azure_rg }}"
+        name: "{{ azure_nsg }}"
+        location: "{{ azure_location }}"
+        tags: "{{ common_tags }}"
+        rules:
+          - name: Allow-SSH
+            protocol: Tcp
+            source_address_prefix: "*"
+            destination_port_range: 22
+            access: Allow
+            priority: 100
+            direction: Inbound
+
+          - name: Allow-K8s-API
+            protocol: Tcp
+            source_address_prefix: "*"
+            destination_port_range: 6443
+            access: Allow
+            priority: 110
+            direction: Inbound
+
+          - name: Allow-NodePort
+            protocol: Tcp
+            source_address_prefix: "*"
+            destination_port_range: 30000-32767
+            access: Allow
+            priority: 120
+            direction: Inbound
+
+    - name: Ensure public IPs exist
+      azure.azcollection.azure_rm_publicipaddress:
+        auth_source: cli
+        subscription_id: "{{ lookup('env', 'AZURE_SUBSCRIPTION_ID') }}"
+        resource_group: "{{ azure_rg }}"
+        name: "{{ item.public_ip_name }}"
+        location: "{{ azure_location }}"
+        allocation_method: Static
+        sku: Standard
+        tags: "{{ common_tags | combine({'role': item.role}) }}"
+      loop: "{{ k8s_nodes }}"
+      loop_control:
+        label: "{{ item.public_ip_name }}"
+
+    - name: Ensure NICs exist
+      azure.azcollection.azure_rm_networkinterface:
+        auth_source: cli
+        subscription_id: "{{ lookup('env', 'AZURE_SUBSCRIPTION_ID') }}"
+        resource_group: "{{ azure_rg }}"
+        name: "{{ item.nic_name }}"
+        location: "{{ azure_location }}"
+        virtual_network: "{{ azure_vnet }}"
+        subnet_name: "{{ azure_subnet }}"
+        security_group: "{{ azure_nsg }}"
+        ip_configurations:
+          - name: ipconfig1
+            primary: true
+            public_ip_address_name: "{{ item.public_ip_name }}"
+        tags: "{{ common_tags | combine({'role': item.role}) }}"
+      loop: "{{ k8s_nodes }}"
+      loop_control:
+        label: "{{ item.nic_name }}"
+
+    - name: Ensure VMs exist
+      azure.azcollection.azure_rm_virtualmachine:
+        auth_source: cli
+        subscription_id: "{{ lookup('env', 'AZURE_SUBSCRIPTION_ID') }}"
+        resource_group: "{{ azure_rg }}"
+        name: "{{ item.vm_name }}"
+        location: "{{ azure_location }}"
+        vm_size: "{{ default_vm_size }}"
+        admin_username: "{{ vm_admin_username }}"
+        ssh_password_enabled: false
+        ssh_public_keys:
+          - path: "/home/{{ vm_admin_username }}/.ssh/authorized_keys"
+            key_data: "{{ lookup('file', ssh_public_key_path) }}"
+        network_interfaces: "{{ item.nic_name }}"
+        managed_disk_type: "{{ os_managed_disk_type }}"
+        os_disk_size_gb: "{{ os_disk_size_gb }}"
+        image:
+          publisher: "{{ image.publisher }}"
+          offer: "{{ image.offer }}"
+          sku: "{{ image.sku }}"
+          version: "{{ image.version }}"
+        tags: "{{ common_tags | combine({'role': item.role}) }}"
+      loop: "{{ k8s_nodes }}"
+      loop_control:
+        label: "{{ item.vm_name }}"

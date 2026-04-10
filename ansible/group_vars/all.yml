@@ -1,0 +1,49 @@
+azure_location: southeastasia
+azure_rg: rg-wastedetection-dev-aue-01
+
+azure_vnet: vnet-wastedetection-dev-aue-01
+azure_subnet: snet-wastedetection-k8s-aue-01
+azure_nsg: nsg-wastedetection-k8s-aue-01
+
+vm_admin_username: azureuser
+ssh_public_key_path: "{{ lookup('env', 'HOME') + '/.ssh/id_rsa.pub' }}"
+
+default_vm_size: Standard_B2as_v2
+os_managed_disk_type: StandardSSD_LRS
+os_disk_size_gb: 30
+
+image:
+  publisher: Canonical
+  offer: 0001-com-ubuntu-server-jammy
+  sku: 22_04-lts-gen2
+  version: latest
+
+vnet_address_space:
+  - 10.10.0.0/16
+
+subnet_prefix: 10.10.1.0/24
+
+common_tags:
+  project: waste-detection
+  env: dev
+  owner: Shaomin
+  managed_by: ansible
+
+k8s_nodes:
+  - name: master
+    role: master
+    vm_name: vm-wastedetection-master-aue-01
+    nic_name: nic-wastedetection-master-aue-01
+    public_ip_name: pip-wastedetection-master-aue-01
+
+  - name: worker1
+    role: worker
+    vm_name: vm-wastedetection-worker1-aue-01
+    nic_name: nic-wastedetection-worker1-aue-01
+    public_ip_name: pip-wastedetection-worker1-aue-01
+
+  - name: worker2
+    role: worker
+    vm_name: vm-wastedetection-worker2-aue-01
+    nic_name: nic-wastedetection-worker2-aue-01
+    public_ip_name: pip-wastedetection-worker2-aue-01
