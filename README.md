@@ -56,3 +56,49 @@ I took a photo with my cell phone to test whether the model can correctly identi
 git clone https://github.com/gianlucasposito/YOLO-Waste-Detection.git    
 cd Waste_Detection
 pip install -r requirements.txt
+
+```bash
+sudo service docker start
+sudo usermod -aG docker $USER
+newgrp docker
+docker version
+
+docker build -t yolo-waste-api:v1 .
+docker images
+```
+
+```bash
+ACR_NAME=<acr_name>
+LOGIN_SERVER=$(az acr show --name $ACR_NAME --query loginServer --output tsv)
+
+az acr login --name $ACR_NAME
+docker tag yolo-waste-api:v2 $LOGIN_SERVER/yolo-waste-api:v2
+docker push $LOGIN_SERVER/yolo-waste-api:v2
+az acr repository show-tags --name $ACR_NAME --repository yolo-waste-api --output table
+```
+
+```bash
+kubectl get nodes
+az acr update -n acrwastedetectionsea01 --admin-enabled true
+az acr credential show -n acrwastedetectionsea01
+kubectl create secret docker-registry acr-auth \
+  --docker-server=acrwastedetectionsea01.azurecr.io \
+  --docker-username='<ACR_USERNAME>' \
+  --docker-password='<ACR_PASSWORD>'
+kubectl get secret acr-auth
+```
+
+# ssh azureuser@20.212.8.183 -i ~/.ssh/id_rsa
+# http://4.194.51.69:30080/docs
+
+```bash
+az acr update -n acrwastedetectionsea01 --admin-enabled true
+
+# get ACR username and password
+az acr credential show -n acrwastedetectionsea01
+
+kubectl create secret docker-registry acr-auth \
+  --docker-server=acrwastedetectionsea01.azurecr.io \
+  --docker-username='<ACR_USERNAME>' \
+  --docker-password='<ACR_PASSWORD>'
+```
