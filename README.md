@@ -78,20 +78,6 @@ az acr repository show-tags --name $ACR_NAME --repository yolo-waste-api --outpu
 ```
 
 ```bash
-kubectl get nodes
-az acr update -n acrwastedetectionsea01 --admin-enabled true
-az acr credential show -n acrwastedetectionsea01
-kubectl create secret docker-registry acr-auth \
-  --docker-server=acrwastedetectionsea01.azurecr.io \
-  --docker-username='<ACR_USERNAME>' \
-  --docker-password='<ACR_PASSWORD>'
-kubectl get secret acr-auth
-```
-
-# ssh azureuser@20.212.8.183 -i ~/.ssh/id_rsa
-# http://4.194.51.69:30080/docs
-
-```bash
 az acr update -n acrwastedetectionsea01 --admin-enabled true
 
 # get ACR username and password
@@ -101,4 +87,6 @@ kubectl create secret docker-registry acr-auth \
   --docker-server=acrwastedetectionsea01.azurecr.io \
   --docker-username='<ACR_USERNAME>' \
   --docker-password='<ACR_PASSWORD>'
+
+kubectl get secret acr-auth
 ```

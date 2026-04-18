@@ -22,5 +22,5 @@ print("predict ok")
 print("boxes count:", 0 if result.boxes is None else len(result.boxes))
 
 annotated = result.plot()
-cv2.imwrite("debug_prediction.jpg", annotated)
-print("saved debug_prediction.jpg")
+cv2.imwrite("local_debug_prediction.jpg", annotated)
+print("saved local_debug_prediction.jpg")
