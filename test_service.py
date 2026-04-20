@@ -5,8 +5,8 @@ import requests
 IMAGE_PATH = "Image/image_phone.jpeg"
 OUTPUT_PATH = "service_debug_prediction.jpg"
 
-SERVICE_URL = "http://4.193.105.141:30080/api/annotate"
-# SERVICE_URL = "http://104.215.144.255:30080/api/annotate"
+SERVICE_URL = "http://20.212.211.0:30080/api/annotate"
+# SERVICE_URL = "http://20.212.56.91:30080/api/annotate"
 
 
 

@@ -13,28 +13,37 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 from ultralytics import YOLO
 
+# set up application logging
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 logger = logging.getLogger("cloudeco")
 
+# read key settings from environment variables
 MODEL_PATH = os.getenv("MODEL_PATH", "best_model.pt")
 MODEL_CONFIDENCE = float(os.getenv("MODEL_CONFIDENCE", "0.25"))
+
+# set a default concurrency limit based on CPU count
 DEFAULT_MAX_CONCURRENCY = max(1, min(4, os.cpu_count() or 1))
+
+# allow the concurrency limit to be configured from the environment
 MAX_INFERENCE_CONCURRENCY = max(
     1, int(os.getenv("MAX_INFERENCE_CONCURRENCY", str(DEFAULT_MAX_CONCURRENCY)))
 )
+# optionally force model prediction to run one at a time
 SERIALIZE_MODEL_PREDICT = os.getenv("SERIALIZE_MODEL_PREDICT", "false").lower() == "true"
+# optionally warm up the model during startup
 WARMUP_ON_STARTUP = os.getenv("WARMUP_ON_STARTUP", "true").lower() == "true"
+# set JPEG quality for annotated image output
 ANNOTATION_JPEG_QUALITY = int(os.getenv("ANNOTATION_JPEG_QUALITY", "90"))
 
-
+# define the request body for prediction
 class PredictRequest(BaseModel):
     uuid: str = Field(..., description="Client-generated request ID")
     image: str = Field(..., description="Base64-encoded image")
 
-
+# define the structure of one bounding box
 class BoundingBox(BaseModel):
     x: int
     y: int
@@ -42,7 +51,7 @@ class BoundingBox(BaseModel):
     height: int
     probability: float
 
-
+# define the response body for prediction
 class PredictResponse(BaseModel):
     uuid: str
     count: int
@@ -53,34 +62,44 @@ class PredictResponse(BaseModel):
     speed_postprocess_ms: float
 
 
+# extend the prediction response with an annotated image
 class AnnotateResponse(PredictResponse):
     image: str
 
 
 class InferenceService:
     def __init__(self, model_path: str, conf: float, serialize_predict: bool = False) -> None:
+        # load the YOLO model once during service initialization
         self.model = YOLO(model_path)
         self.conf = conf
         self.serialize_predict = serialize_predict
         self._predict_lock = threading.Lock()
 
     def warmup(self) -> None:
+        # run one dummy inference to warm up the model
         dummy = np.zeros((640, 640, 3), dtype=np.uint8)
         self._predict(dummy)
         logger.info("Model warm-up completed")
 
     def predict(self, payload: PredictRequest) -> PredictResponse:
+        # decode the input image and run prediction
         image_bgr = self._decode_base64_image(payload.image)
         result = self._predict(image_bgr)
         return self._build_predict_response(payload.uuid, result)
 
     def annotate(self, payload: PredictRequest) -> AnnotateResponse:
+        # decode the input image and run prediction
         image_bgr = self._decode_base64_image(payload.image)
         result = self._predict(image_bgr)
+
+        # build the normal prediction response first
         predict_response = self._build_predict_response(payload.uuid, result)
+
+        # draw boxes on the image and encode it back to base64
         annotated_image = self._draw_annotations(image_bgr.copy(), predict_response)
         encoded_image = self._encode_image_to_base64(annotated_image)
 
+        # merge the annotated image into the response
         response_data = (
             predict_response.model_dump()
             if hasattr(predict_response, "model_dump")
@@ -90,6 +109,7 @@ class InferenceService:
         return AnnotateResponse(**response_data)
 
     def _predict(self, image_bgr: np.ndarray):
+        # optionally serialize prediction for safer model access under concurrency
         if self.serialize_predict:
             with self._predict_lock:
                 results = self.model.predict(source=image_bgr, conf=self.conf, verbose=False)
@@ -101,6 +121,7 @@ class InferenceService:
         return results[0]
 
     def _build_predict_response(self, uuid: str, result) -> PredictResponse:
+        # convert raw model output into a clean API response
         boxes_out: List[BoundingBox] = []
         detections: List[str] = []
 
@@ -136,6 +157,7 @@ class InferenceService:
                     )
                 )
 
+        # also return preprocess, inference, and postprocess timing
         speed = getattr(result, "speed", {}) or {}
 
         return PredictResponse(
@@ -150,6 +172,7 @@ class InferenceService:
 
     @staticmethod
     def _normalize_base64_image(raw: str) -> str:
+        # normalize the base64 string before decoding
         data = raw.strip()
 
         if data.startswith("data:image"):
@@ -164,6 +187,7 @@ class InferenceService:
         return data
 
     def _decode_base64_image(self, raw: str) -> np.ndarray:
+        # decode the base64 string into an OpenCV image
         normalized = self._normalize_base64_image(raw)
 
         try:
@@ -181,6 +205,7 @@ class InferenceService:
 
     @staticmethod
     def _draw_annotations(image_bgr: np.ndarray, prediction: PredictResponse) -> np.ndarray:
+        # draw bounding boxes and labels on the image
         for label, box in zip(prediction.detections, prediction.boxes):
             x1, y1 = box.x, box.y
             x2, y2 = box.x + box.width, box.y + box.height
@@ -204,6 +229,7 @@ class InferenceService:
 
     @staticmethod
     def _encode_image_to_base64(image_bgr: np.ndarray) -> str:
+        # encode the annotated image back to base64
         success, encoded = cv2.imencode(
             ".jpg",
             image_bgr,
@@ -214,22 +240,26 @@ class InferenceService:
         return base64.b64encode(encoded.tobytes()).decode("utf-8")
 
 
+# use FastAPI lifespan to handle startup logic
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Loading YOLO model from %s", MODEL_PATH)
 
+    # create the inference service once at application startup
     service = InferenceService(
         model_path=MODEL_PATH,
         conf=MODEL_CONFIDENCE,
         serialize_predict=SERIALIZE_MODEL_PREDICT,
     )
 
+    # optionally warm up the model before serving requests
     if WARMUP_ON_STARTUP:
         try:
             await run_in_threadpool(service.warmup)
         except Exception:
             logger.exception("Model warm-up failed")
 
+    # store shared objects in app state
     app.state.inference_service = service
     app.state.inference_semaphore = asyncio.Semaphore(MAX_INFERENCE_CONCURRENCY)
 
@@ -244,6 +274,7 @@ async def lifespan(app: FastAPI):
     logger.info("Application shutting down")
 
 
+# create the FastAPI application
 app = FastAPI(
     title="CloudEco Inference API",
     version="1.0.0",
@@ -252,6 +283,7 @@ app = FastAPI(
 
 
 def get_service_and_semaphore(request: Request):
+    # get the shared service and semaphore from app state
     service = getattr(request.app.state, "inference_service", None)
     semaphore = getattr(request.app.state, "inference_semaphore", None)
 
@@ -263,15 +295,19 @@ def get_service_and_semaphore(request: Request):
 
 @app.get("/healthz")
 async def healthz():
+    # simple health check endpoint
     return {"status": "ok"}
 
 
 @app.post("/api/predict", response_model=PredictResponse)
 async def predict(payload: PredictRequest, request: Request):
+    # get the shared service and concurrency control
     service, semaphore = get_service_and_semaphore(request)
 
     try:
+        # limit concurrent inference requests with a semaphore
         async with semaphore:
+            # move blocking model inference into the thread pool
             return await run_in_threadpool(service.predict, payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -282,10 +318,13 @@ async def predict(payload: PredictRequest, request: Request):
 
 @app.post("/api/annotate", response_model=AnnotateResponse)
 async def annotate(payload: PredictRequest, request: Request):
+    # get the shared service and concurrency control
     service, semaphore = get_service_and_semaphore(request)
 
     try:
+        # limit concurrent inference requests with a semaphore
         async with semaphore:
+            # move blocking annotation work into the thread pool
             return await run_in_threadpool(service.annotate, payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -297,6 +336,7 @@ async def annotate(payload: PredictRequest, request: Request):
 if __name__ == "__main__":
     import uvicorn
 
+    # allow local startup with configurable host, port, and worker count
     uvicorn.run(
         "main:app",
         host=os.getenv("HOST", "0.0.0.0"),
