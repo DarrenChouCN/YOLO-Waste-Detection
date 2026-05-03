@@ -5,9 +5,11 @@ import requests
 IMAGE_PATH = "Image/image_phone.jpeg"
 OUTPUT_PATH = "service_debug_prediction.jpg"
 
-SERVICE_URL = "http://20.212.211.0:30080/api/annotate"
-# SERVICE_URL = "http://20.212.56.91:30080/api/annotate"
+# worker node 1: 20.205.232.52
+SERVICE_URL = "http://20.205.232.52:30080/api/annotate"
 
+# worker node 2: 4.193.205.40
+# SERVICE_URL = "http://4.193.205.40:30080/api/annotate"
 
 
 def main():
